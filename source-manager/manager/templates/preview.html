@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>电视预览 · TV Suite</title>
+    <link rel="stylesheet" href="/admin/static/preview.css" />
+    <script src="/admin/static/vendor/hls-1.7.4.min.js" defer></script>
+    <script src="/admin/static/preview.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/preview"
+        ><span class="brand-icon">▣</span> TV SUITE <small>电视预览</small></a
+      ><a class="back" href="/admin">返回源管理 ↗</a>
+    </header>
+    <main>
+      <aside class="groups">
+        <div class="eyebrow">频道分类</div>
+        <nav id="groups" aria-label="频道分类"></nav>
+        <p class="hint">使用当前已发布列表<br />点击频道，开始预览</p>
+      </aside>
+      <section class="catalog" aria-label="频道列表">
+        <div class="catalog-head">
+          <div>
+            <div class="eyebrow">YOUR CHANNELS</div>
+            <h1 id="category-title">全部频道</h1>
+            <p id="count">正在读取频道…</p>
+          </div>
+          <button id="refresh" class="quiet">刷新列表</button>
+        </div>
+        <label class="search"
+          ><span>⌕</span
+          ><input
+            id="search"
+            type="search"
+            placeholder="搜索频道名称"
+            aria-label="搜索频道"
+        /></label>
+        <div id="cards" class="cards"></div>
+        <p id="empty" hidden>没有匹配的频道，试试其他分类或关键词。</p>
+      </section>
+      <section class="watch" aria-label="播放预览">
+        <div class="player-shell" id="player-shell">
+          <video
+            id="video"
+            controls
+            playsinline
+            preload="none"
+            aria-label="频道播放器"
+          ></video>
+          <div class="placeholder" id="placeholder">
+            <span>▣</span>
+            <h2>选一个频道，看看现在播什么</h2>
+            <p>单播放器预览 · 点击后才加载视频</p>
+          </div>
+        </div>
+        <div class="now">
+          <span class="live">频道预览</span>
+          <h2 id="now-title">尚未选择频道</h2>
+          <p id="status" role="status" aria-live="polite">
+            从左侧频道卡片开始。
+          </p>
+        </div>
+        <div class="controls">
+          <button id="previous" disabled>↑ 上一台</button
+          ><button id="next" disabled>↓ 下一台</button
+          ><button id="stop" disabled>停止</button
+          ><button id="fullscreen">⛶ 全屏</button>
+        </div>
+        <div class="play-settings">
+          <label
+            >播放线路<select id="source" disabled>
+              <option>选择频道后显示</option>
+            </select></label
+          ><label
+            >连接方式<select id="transport">
+              <option value="auto">自动 · 优先直连</option>
+              <option value="direct">直连</option>
+              <option value="relay">预览转发</option>
+            </select></label
+          >
+        </div>
+        <button id="retry" class="retry" hidden>重新播放</button>
+        <div class="tips">
+          <strong>像电视一样切台</strong>
+          <p>
+            方向键移动频道焦点，Enter 播放。Page Up / Down 切台，F 全屏，Esc
+            退出全屏。
+          </p>
+          <p>预览由浏览器解码；列表检测结果与实际播放效果分开显示。</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

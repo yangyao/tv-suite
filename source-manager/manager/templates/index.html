@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>电视源管理</title>
+    <link rel="stylesheet" href="/admin/static/app.css" />
+    <script src="/admin/static/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/admin"
+        ><span class="brand-icon">▣</span
+        ><span>电视源管理<small>TV SUITE · 家庭版</small></span></a
+      >
+      <nav aria-label="主要导航">
+        <button class="nav active" data-page="overview">
+          ◫ <span>运行概览</span></button
+        ><button class="nav" data-page="sources">
+          ☷ <span>订阅入口</span></button
+        ><button class="nav" data-page="channels">
+          ▤ <span>频道与线路</span></button
+        ><button class="nav" data-page="jobs">◷ <span>任务记录</span></button
+        ><button class="nav" data-page="settings">
+          ⚙ <span>更新设置</span>
+        </button>
+      </nav>
+      <div class="side-note">
+        <span class="dot"></span> 局域网管理<br /><small
+          >视频由电视直接连接播放</small
+        >
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <div class="eyebrow">SOURCE MANAGER</div>
+          <h1 id="page-title">运行概览</h1>
+          <p id="page-description">维护好入口，其余交给自动更新。</p>
+        </div>
+        <div class="header-actions">
+          <a class="secondary" href="/preview">电视预览 ↗</a>
+          <span id="connection" class="connection">正在连接…</span
+          ><button id="run-update" class="primary" data-action="run">
+            立即更新
+          </button>
+        </div>
+      </header>
+      <div id="content" aria-live="polite">
+        <div class="panel empty">正在读取运行状态…</div>
+      </div>
+      <footer>配置保存在本机 · 采集、检测与列表发布 · TV Suite</footer>
+    </main>
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+    <dialog id="source-dialog">
+      <form id="source-form">
+        <div class="dialog-head">
+          <h2 id="source-dialog-title">添加订阅入口</h2>
+          <button
+            type="button"
+            class="icon"
+            data-action="close-dialog"
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </div>
+        <input type="hidden" name="id" /><label
+          >名称<input
+            name="name"
+            maxlength="120"
+            placeholder="例如：常用公开频道" /></label
+        ><label
+          >订阅地址<input
+            name="url"
+            type="url"
+            required
+            placeholder="https://example.com/playlist.m3u" /></label
+        ><label class="check"
+          ><input name="enabled" type="checkbox" checked />启用这个入口</label
+        >
+        <details>
+          <summary>可选请求设置</summary>
+          <label
+            >User-Agent<input
+              name="user_agent"
+              maxlength="512"
+              placeholder="默认自动填写"
+          /></label>
+        </details>
+        <p class="hint">
+          支持 M3U 和 TXT。保存后可先测试入口，再更新全部频道。
+        </p>
+        <div class="dialog-actions">
+          <button type="button" data-action="close-dialog">取消</button
+          ><button class="primary" type="submit">保存入口</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="import-dialog">
+      <form id="import-form">
+        <div class="dialog-head">
+          <h2>批量导入入口</h2>
+          <button
+            type="button"
+            class="icon"
+            data-action="close-dialog"
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </div>
+        <label
+          >每行一个订阅地址<textarea
+            name="text"
+            rows="9"
+            required
+            placeholder="https://example.com/one.m3u&#10;https://example.com/two.txt"
+          ></textarea>
+        </label>
+        <p class="hint">
+          每次最多 100 行。重复地址会跳过，已有入口不会被覆盖。
+        </p>
+        <pre id="import-result" hidden></pre>
+        <div class="dialog-actions">
+          <button type="button" data-action="close-dialog">关闭</button
+          ><button class="primary">导入</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="log-dialog" class="wide">
+      <div class="dialog-head">
+        <h2>任务日志</h2>
+        <button
+          type="button"
+          class="icon"
+          data-action="close-dialog"
+          aria-label="关闭"
+        >
+          ×
+        </button>
+      </div>
+      <p class="hint">显示最近 64 KB，任务进行中会自动刷新。</p>
+      <pre id="log-content"></pre>
+    </dialog>
+  </body>
+</html>

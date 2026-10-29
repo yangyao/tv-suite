@@ -1,0 +1,7 @@
+ARG BASE_IMAGE=guovern/iptv-api:latest
+FROM ${BASE_IMAGE}
+WORKDIR /app
+COPY . /app
+ENV MANAGER_DATA_DIR=/data IPTV_API_SKIP_VERSION_CHECK=1 IPTV_API_PLAIN_OUTPUT=1
+EXPOSE 8080
+ENTRYPOINT ["/iptv-api/.venv/bin/python", "-m", "gunicorn", "-c", "manager/gunicorn.conf.py", "manager.wsgi:app"]

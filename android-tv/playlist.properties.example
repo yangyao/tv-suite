@@ -1,0 +1,2 @@
+# Copy to private/local.properties, then set your subscription URL.
+playlist.url=https://example.com/playlist.m3u

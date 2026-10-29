@@ -1,0 +1,14 @@
+**/private/
+.DS_Store
+**/.gradle/
+**/build/
+**/__pycache__/
+**/.venv/
+**/local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
