@@ -76,7 +76,7 @@ class Worker:
                     )
             channel_map = {r["channel_key"]: r for r in channels}
             for row in discovery.channel_rows(self.store):
-                channel_map.setdefault(row["channel_key"], row)
+                channel_map[row["channel_key"]] = row
             channels = list(channel_map.values())
             m3u, txt, entries = filter_playlist(raw, self.store.rules())
             for filename, value in [

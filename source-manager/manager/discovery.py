@@ -371,6 +371,18 @@ def scan(snapshot, directory, report=lambda message: print(message, flush=True))
                         row.update(status="duplicate", duplicate_of=digests[digest])
                     else:
                         digests[digest] = url
+                        entries.sort(
+                            key=lambda entry: (
+                                not bool(
+                                    re.search(
+                                        r"news|新闻|新聞|RTHK|港台|翡翠|明珠|TVB|TDM|澳视|澳視|公视|公視|CNA|BBC|Al Jazeera",
+                                        entry["name"],
+                                        re.I,
+                                    )
+                                ),
+                                entry["name"],
+                            )
+                        )
                         queues.append((row, entries))
                 except (requests.RequestException, ValueError, OSError):
                     row.update(
