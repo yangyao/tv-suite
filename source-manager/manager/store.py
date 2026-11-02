@@ -158,6 +158,10 @@ class Store:
                 db.execute(
                     "INSERT OR IGNORE INTO meta VALUES (?,?)", (key, json.dumps(value))
                 )
+        from manager.discovery import schema
+
+        with self.connect() as db:
+            schema(db)
         self.import_sources()
 
     @contextlib.contextmanager
@@ -230,18 +234,33 @@ class Store:
         self.set("imported", True)
 
     def enqueue(self, kind="update", source_id=None):
-        if kind not in {"update", "check"}:
+        if kind not in {"update", "check", "discover"}:
             raise ValueError("任务类型无效")
         sources = self.sources()
         if kind == "check":
             sources = [s for s in sources if s["id"] == source_id]
             if not sources:
                 raise KeyError("入口不存在")
-        else:
+        elif kind == "update":
             sources = [s for s in sources if s["enabled"]]
             if not sources:
                 raise ValueError("请先添加并启用至少一个订阅入口")
         snapshot = {"sources": sources, "settings": self.get("settings")}
+        if kind == "discover":
+            from manager.discovery import config, rows
+
+            snapshot.update(
+                discovery_config=config(self),
+                rules=self.rules(),
+                discovery_sources=rows(self, "discovery_sources"),
+                discovery_candidates=rows(self, "discovery_candidates"),
+            )
+            catalog = self.root / "config/demo.txt"
+            if not catalog.exists():
+                catalog = Path(__file__).resolve().parents[1] / "config/demo.txt"
+            snapshot["channel_catalog"] = (
+                snapshot["settings"].get("channel_template") or catalog.read_text()
+            )
         job_id = uuid.uuid4().hex
         with self.connect() as db:
             try:

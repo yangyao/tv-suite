@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from manager.playlists import filter_playlist, parse_playlist, read_channels
 from manager.store import atomic_write
+from manager import discovery
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,8 +61,26 @@ class Worker:
             name = uuid.uuid4().hex
             directory = self.root / "publications" / name
             directory.mkdir(parents=True)
+            base = raw
+            extras = discovery.published_entries(self.store)
+            existing = {
+                (e["category"], e["name"], e["url"]) for e in parse_playlist(raw)
+            }
+            for entry in extras:
+                if (entry["category"], entry["name"], entry["url"]) not in existing:
+                    raw = (
+                        raw.rstrip()
+                        + "\n"
+                        + "\n".join([entry["extinf"], *entry["options"], entry["url"]])
+                        + "\n"
+                    )
+            channel_map = {r["channel_key"]: r for r in channels}
+            for row in discovery.channel_rows(self.store):
+                channel_map.setdefault(row["channel_key"], row)
+            channels = list(channel_map.values())
             m3u, txt, entries = filter_playlist(raw, self.store.rules())
             for filename, value in [
+                ("base.m3u", base),
                 ("raw.m3u", raw),
                 ("result.m3u", m3u),
                 ("result.txt", txt),
@@ -96,7 +115,10 @@ class Worker:
             current = self.root / "current"
             if current.exists():
                 self.publish(
-                    (current / "raw.m3u").read_text(),
+                    (
+                        current
+                        / ("base.m3u" if (current / "base.m3u").exists() else "raw.m3u")
+                    ).read_text(),
                     json.loads((current / "channels.json").read_text()),
                     json.loads((current / "meta.json").read_text())["job_id"],
                 )
@@ -145,6 +167,15 @@ class Worker:
         if queued:
             self.execute(queued[0])
             return
+        discovery_settings = discovery.config(self.store)
+        if discovery_settings["enabled"] and time.time() >= self.store.get(
+            "discovery_next", 0
+        ):
+            try:
+                self.store.enqueue("discover")
+            except ValueError:
+                pass
+            return
         if time.time() >= self.store.get("next_run", 0):
             try:
                 self.store.enqueue()
@@ -154,6 +185,17 @@ class Worker:
 
     def prepare(self, job):
         directory = self.root / "jobs" / job["id"]
+        if job["kind"] == "discover":
+            directory.mkdir(parents=True)
+            snapshot = json.loads(job["snapshot"])
+            snapshot["kind"] = "discover"
+            atomic_write(
+                directory / "snapshot.json", json.dumps(snapshot, ensure_ascii=False)
+            )
+            cache = self.root / "discovery/http"
+            if cache.exists():
+                shutil.copytree(cache, directory / "http")
+            return directory
         config_dir = directory / "config"
         shutil.copytree(
             self.root / "config"
@@ -242,6 +284,11 @@ class Worker:
         job = self.store.job(job_id)
         if job["cancel"]:
             self.store.update_job(job_id, status="cancelled", finished_at=time.time())
+            if job["kind"] == "discover":
+                self.store.set(
+                    "discovery_next",
+                    time.time() + discovery.config(self.store)["interval"] * 3600,
+                )
             return
         self.store.update_job(
             job_id, status="running", started_at=time.time(), phase="prepare"
@@ -285,7 +332,8 @@ class Worker:
             summary = (
                 json.loads(summary_path.read_text()) if summary_path.exists() else {}
             )
-            self.update_sources(summary.get("sources", []), job["kind"])
+            if job["kind"] != "discover":
+                self.update_sources(summary.get("sources", []), job["kind"])
             if (directory / "channels.json").exists():
                 self.store.set("latest_result", job_id)
             if returncode != 0:
@@ -301,6 +349,20 @@ class Worker:
                     return
                 status = "success"
                 message = "入口测试通过" if job["kind"] == "check" else "更新并发布完成"
+                if job["kind"] == "discover":
+                    result = json.loads(
+                        (directory / "discovery-result.json").read_text()
+                    )
+                    discovery.apply_result(self.store, result, job_id)
+                    for path in (directory / "http").glob("*.json"):
+                        atomic_write(
+                            self.root / "discovery/http" / path.name, path.read_text()
+                        )
+                    if (self.root / "current").exists():
+                        self.republish()
+                    elif discovery.published_entries(self.store):
+                        self.publish("#EXTM3U\n", [], job_id)
+                    message = f"发现完成：检测 {result['checked']} 条线路，新增 {result['added_channels']} 个频道"
                 if job["kind"] == "update":
                     raw = (directory / "output/result.m3u").read_text()
                     if not parse_playlist(raw):
@@ -325,6 +387,11 @@ class Worker:
             )
         finally:
             self.child = None
+            if job["kind"] == "discover":
+                self.store.set(
+                    "discovery_next",
+                    time.time() + discovery.config(self.store)["interval"] * 3600,
+                )
             if job["kind"] == "update":
                 self.store.set("next_run", next_run(self.store.get("settings")))
             self.cleanup()

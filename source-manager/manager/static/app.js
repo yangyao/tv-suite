@@ -18,6 +18,7 @@ let state,
   logId = null;
 const titles = {
   overview: ["运行概览", "维护好入口，其余交给自动更新。"],
+  discovery: ["源发现", "跟踪可信资源目录，自动补充入口和新频道。"],
   sources: ["订阅入口", "集中维护采集入口，自动拉取、检测并筛选频道。"],
   channels: ["频道与线路", "查看检测结果，屏蔽失效线路或隐藏不需要的频道。"],
   jobs: ["任务记录", "追踪每一轮更新，查看结果与失败原因。"],
@@ -35,6 +36,7 @@ const names = {
 };
 const phases = {
   prepare: "准备配置",
+  discovery: "发现入口与频道",
   fetch: "拉取订阅",
   subscribe: "拉取订阅",
   speed_test: "检测线路",
@@ -78,7 +80,7 @@ const active = () =>
   state?.jobs.find((j) => ["running", "queued"].includes(j.status));
 function jobTable(jobs) {
   return jobs.length
-    ? `<div class="table-scroll"><table><thead><tr><th>开始时间</th><th>任务</th><th>状态</th><th>用时</th><th>结果</th><th></th></tr></thead><tbody>${jobs.map((j) => `<tr><td>${esc(date(j.created_at))}</td><td>${j.kind === "check" ? "测试入口" : "采集与检测"}</td><td>${tag(j.status)}</td><td>${duration(j)}</td><td>${esc(j.message || "等待执行")}${j.summary?.metrics ? `<div class="hint">通过 ${j.summary.metrics.valid || 0} / 检测 ${j.summary.metrics.completed || 0}</div>` : ""}</td><td><button class="small" data-action="log" data-id="${esc(j.id)}">查看日志</button></td></tr>`).join("")}</tbody></table></div>`
+    ? `<div class="table-scroll"><table><thead><tr><th>开始时间</th><th>任务</th><th>状态</th><th>用时</th><th>结果</th><th></th></tr></thead><tbody>${jobs.map((j) => `<tr><td>${esc(date(j.created_at))}</td><td>${j.kind === "discover" ? "源发现" : j.kind === "check" ? "测试入口" : "采集与检测"}</td><td>${tag(j.status)}</td><td>${duration(j)}</td><td>${esc(j.message || "等待执行")}${j.summary?.metrics ? `<div class="hint">通过 ${j.summary.metrics.valid || 0} / 检测 ${j.summary.metrics.completed || 0}</div>` : ""}</td><td><button class="small" data-action="log" data-id="${esc(j.id)}">查看日志</button></td></tr>`).join("")}</tbody></table></div>`
     : '<div class="empty">还没有任务记录。添加入口后即可开始更新。</div>';
 }
 function render() {
@@ -89,7 +91,7 @@ function render() {
     .querySelectorAll(".nav")
     .forEach((n) => n.classList.toggle("active", n.dataset.page === page));
   $("#run-update").disabled = !!active();
-  $("#run-update").textContent = active() ? "更新任务进行中" : "立即更新";
+  $("#run-update").textContent = active() ? "任务进行中" : "立即更新";
   let html = "";
   if (page === "overview") {
     const pub = state.publication,
@@ -116,6 +118,8 @@ function render() {
     );
     html = `<section class="panel"><div class="panel-head"><h2>频道检测结果 <span class="muted">${channels.length}</span></h2><div class="toolbar"><input id="channel-search" placeholder="搜索频道或分组" value="${esc(search)}" aria-label="搜索频道"><select id="channel-category" aria-label="筛选分组"><option value="">全部分组</option>${categories.map((c) => `<option ${category === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`).join("")}</select><button data-action="refresh-channels">刷新</button></div></div><p class="hint">显示最近一轮检测明细；发布数量以运行概览为准。隐藏或屏蔽会立即更新订阅，下轮检测也会保留规则。</p>${channels.map((c) => `<details class="channel" data-key="${esc(c.channel_key)}" ${opened.has(c.channel_key) ? "open" : ""}><summary><div><span class="channel-title">${esc(c.name)}</span><span class="hint">${esc(c.category)}</span></div><div>${c.hidden ? tag("disabled", "已隐藏") : tag(c.results.some((r) => r.valid && !r.blocked) ? "ok" : "failed", `${c.results.filter((r) => r.valid && !r.blocked).length} 条可用`)} <button class="small" data-action="hide-channel" data-id="${esc(c.channel_key)}">${c.hidden ? "恢复频道" : "隐藏频道"}</button></div></summary><div class="table-scroll"><table><thead><tr><th>线路地址</th><th>结果</th><th>速率 / 延迟</th><th>分辨率</th><th></th></tr></thead><tbody>${c.results.map((r, i) => `<tr><td class="mono">${esc(r.url)}${r.error_type ? `<div class="hint">${esc(r.error_type)}</div>` : ""}</td><td>${r.blocked ? tag("disabled", "已屏蔽") : tag(r.valid ? "ok" : "failed", r.valid ? "通过" : r.test_status || "未通过")}</td><td>${r.speed != null ? Number(r.speed).toFixed(2) + " MiB/s" : "—"}<div class="hint">${r.delay != null ? r.delay + " ms" : "—"}</div></td><td>${esc(r.resolution || "—")}</td><td><button class="small" data-action="block-url" data-id="${esc(c.channel_key)}" data-index="${i}">${r.blocked ? "恢复线路" : "屏蔽线路"}</button></td></tr>`).join("")}</tbody></table></div></details>`).join("") || '<div class="empty">没有符合条件的频道。完成一次更新后，检测明细会显示在这里。</div>'}</section>`;
   }
+  if (page === "discovery")
+    html = window.SourceDiscovery.render(state, esc, date, tag);
   if (page === "jobs")
     html = `<section class="panel"><div class="panel-head"><h2>任务历史</h2><span class="hint">自动保留最近 30 次任务与日志</span></div>${jobTable(state.jobs)}</section>`;
   if (page === "settings") {
@@ -142,6 +146,7 @@ async function refresh() {
     $("#connection").textContent = "● 已连接";
     if (
       page !== "settings" &&
+      !(page === "discovery" && $("#discovery-config[open]")) &&
       !document.querySelector("dialog[open]") &&
       previous !== JSON.stringify(state)
     )
@@ -194,6 +199,20 @@ document.addEventListener("click", async (event) => {
       b.closest("dialog").close();
       logId = null;
       return;
+    }
+    if (action === "discover") {
+      await api("jobs", {
+        method: "POST",
+        body: JSON.stringify({ kind: "discover" }),
+      });
+      toast("发现任务已加入队列");
+    }
+    if (action === "import-discovered") {
+      await api("discovery/import", {
+        method: "POST",
+        body: JSON.stringify({ url: b.dataset.url }),
+      });
+      toast("入口已导入，下一轮发现会检测其中的新频道");
     }
     if (action === "run") {
       await api("jobs", {
@@ -312,6 +331,28 @@ document.addEventListener("submit", async (event) => {
         r.errors.map((e) => `第 ${e.line} 行：${e.message}`).join("\n");
       $("#import-result").hidden = false;
       toast(`已导入 ${r.added} 个入口`);
+    }
+    if (f.getAttribute("id") === "discovery-form") {
+      const data = { ...state.discovery.config },
+        fields = new FormData(f);
+      for (const key of ["providers", "countries", "languages"])
+        data[key] = fields.getAll(key);
+      for (const key of ["enabled", "auto_import"])
+        data[key] = f.elements[key].checked;
+      for (const key of [
+        "interval",
+        "probe_budget",
+        "new_channel_limit",
+        "max_channels",
+        "probe_timeout",
+      ])
+        data[key] = f.elements[key].valueAsNumber;
+      await api("discovery/settings", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+      $("#discovery-config").open = false;
+      toast("发现设置已保存");
     }
     if (f.getAttribute("id") === "settings-form") {
       const data = { ...state.settings };

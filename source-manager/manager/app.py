@@ -9,6 +9,7 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file
 
 from manager.preview import register_preview
 from manager.store import Store, validate_settings
+from manager import discovery
 from manager.worker import Worker, next_run
 
 
@@ -99,6 +100,7 @@ def create_app(data_dir=None, start_worker=False):
         publication = json.loads(current.read_text()) if current.exists() else None
         return jsonify(
             csrf=csrf,
+            discovery=discovery.state(store),
             settings=store.get("settings"),
             sources=store.sources(),
             jobs=store.jobs(),
@@ -109,6 +111,32 @@ def create_app(data_dir=None, start_worker=False):
             if (store.root / "config/demo.txt").exists()
             else (Path(__file__).resolve().parents[1] / "config/demo.txt").read_text(),
         )
+
+    @app.put("/api/discovery/settings")
+    def discovery_settings():
+        value = discovery.validate_config(request.get_json())
+        store.set("discovery_config", value)
+        store.set("discovery_next", 0)
+        worker.republish()
+        return jsonify(config=value)
+
+    @app.post("/api/discovery/import")
+    def discovery_import():
+        url = request.get_json().get("url")
+        row = next(
+            (r for r in discovery.rows(store, "discovery_sources") if r["url"] == url),
+            None,
+        )
+        if not row or row.get("status") != "ok":
+            raise ValueError("请先执行发现，选择已验证的入口")
+        sid = store.save_source({"url": url, "name": row["name"], "enabled": True})
+        row["source_id"] = sid
+        with store.connect() as db:
+            db.execute(
+                "UPDATE discovery_sources SET data=? WHERE url=?",
+                (json.dumps(row, ensure_ascii=False), url),
+            )
+        return jsonify(id=sid), 201
 
     @app.post("/api/sources")
     def add_source():
@@ -193,6 +221,12 @@ def create_app(data_dir=None, start_worker=False):
         if not path.exists():
             path = store.root / "current/channels.json"
         rows = json.loads(path.read_text()) if path.exists() else []
+        existing_keys = {r["channel_key"] for r in rows}
+        rows.extend(
+            r
+            for r in discovery.channel_rows(store)
+            if r["channel_key"] not in existing_keys
+        )
         query = request.args.get("search", "").strip().casefold()
         category = request.args.get("category", "")
         rules = store.rules()

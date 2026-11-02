@@ -54,6 +54,37 @@ def run():
         threading.Thread(target=watch_parent, daemon=True).start()
     snapshot = json.loads(Path("snapshot.json").read_text())
     sources = snapshot["sources"]
+    if snapshot["kind"] == "discover":
+        from manager.discovery import scan
+
+        import re
+
+        with open("events.jsonl", "a", encoding="utf-8", buffering=1) as events:
+
+            def report(message):
+                print(message, flush=True)
+                match = re.search(r"检测 (\d+)/(\d+)", message)
+                events.write(
+                    json.dumps(
+                        {
+                            "phase": "discovery",
+                            "message": message,
+                            "data": {"current": int(match[1]), "total": int(match[2])}
+                            if match
+                            else {},
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+            result = scan(snapshot, Path.cwd(), report)
+        atomic_write("discovery-result.json", json.dumps(result, ensure_ascii=False))
+        summary = {k: v for k, v in result.items() if k not in {"records", "sources"}}
+        atomic_write("summary.json", json.dumps(summary, ensure_ascii=False))
+        if result["provider_errors"] and not result["sources"]:
+            return 1
+        return 0
     if snapshot["kind"] == "check":
         try:
             result = check_source(sources[0])
