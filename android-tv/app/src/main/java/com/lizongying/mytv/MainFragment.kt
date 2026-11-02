@@ -77,7 +77,7 @@ class MainFragment : BrowseSupportFragment() {
                 loadRows(result.channels)
                 observeChannels()
                 if (result.cached) {
-                    Toast.makeText(context, "订阅暂时不可用，使用已缓存频道", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, if (result.phoenixOnly) "订阅暂时不可用，仍可观看凤凰卫视" else "订阅暂时不可用，使用已缓存频道", Toast.LENGTH_LONG).show()
                 }
             } catch (e: CancellationException) {
                 throw e

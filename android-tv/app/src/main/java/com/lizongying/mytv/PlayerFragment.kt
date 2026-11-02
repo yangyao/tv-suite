@@ -20,6 +20,14 @@ import androidx.media3.ui.PlayerView
 import com.google.android.exoplayer2.SimpleExoPlayer
 import com.lizongying.mytv.databinding.PlayerBinding
 import com.lizongying.mytv.models.TVViewModel
+import com.lizongying.mytv.models.ProgramType
+import androidx.lifecycle.lifecycleScope
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 
 class PlayerFragment : Fragment(), SurfaceHolder.Callback {
@@ -33,6 +41,9 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
     private lateinit var surfaceView: SurfaceView
     private lateinit var surfaceHolder: SurfaceHolder
     private var exoPlayer: SimpleExoPlayer? = null
+    private var resolveJob: Job? = null
+    private var playGeneration = 0
+    private var officialRetried = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -80,7 +91,7 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
                         super.onPlayerError(error)
 
                         Log.e(TAG, "PlaybackException $error")
-                        tvViewModel?.onPlaybackError()
+                        handlePlaybackError()
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -97,22 +108,83 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
         return _binding!!.root
     }
 
-    @OptIn(UnstableApi::class)
     fun play(tvViewModel: TVViewModel) {
-        this.tvViewModel = tvViewModel
-        playerView?.player?.run {
-            setMediaItem(MediaItem.fromUri(tvViewModel.getVideoUrlCurrent()))
+        officialRetried = false
+        startPlayback(tvViewModel)
+    }
+
+    private fun handlePlaybackError() {
+        val model = tvViewModel ?: return
+        if (model.getTV().programType == ProgramType.F && model.videoIndex.value == 0 && !officialRetried) {
+            officialRetried = true
+            startPlayback(model)
+        } else {
+            model.onPlaybackError()
+        }
+    }
+
+    private fun startPlayback(model: TVViewModel) {
+        resolveJob?.cancel()
+        val generation = ++playGeneration
+        this.tvViewModel = model
+        playerView?.player?.stop()
+        exoPlayer?.stop()
+        val official = model.getTV().programType == ProgramType.F && model.videoIndex.value == 0
+        if (!official) {
+            playResolved(model.getVideoUrlCurrent(), false)
+            return
+        }
+        resolveJob = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val url = PhoenixResolver.resolve(model.getTV().pid)
+                if (generation == playGeneration) playResolved(url, true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (generation != playGeneration) return@launch
+                Log.w(TAG, "Phoenix resolution failed for ${model.getTV().title}: ${e.javaClass.simpleName}")
+                handlePlaybackError()
+            }
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun playResolved(url: String, official: Boolean) {
+        (playerView?.player as? ExoPlayer)?.run {
+            if (official) {
+                val http = DefaultHttpDataSource.Factory().setUserAgent("Mozilla/5.0")
+                    .setAllowCrossProtocolRedirects(true)
+                    .setDefaultRequestProperties(mapOf("Referer" to "https://m.fengshows.com/"))
+                val factory = DefaultMediaSourceFactory(DefaultDataSource.Factory(requireContext(), http))
+                setMediaSource(factory.createMediaSource(MediaItem.fromUri(url)))
+            } else {
+                setMediaItem(MediaItem.fromUri(url))
+            }
             prepare()
+            playWhenReady = true
         }
         exoPlayer?.run {
-            setMediaItem(com.google.android.exoplayer2.MediaItem.fromUri(tvViewModel.getVideoUrlCurrent()))
+            if (official) {
+                val http = com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory("Mozilla/5.0")
+                http.setDefaultRequestProperties(mapOf("Referer" to "https://m.fengshows.com/"))
+                val factory = com.google.android.exoplayer2.source.DefaultMediaSourceFactory(http)
+                setMediaSource(factory.createMediaSource(com.google.android.exoplayer2.MediaItem.fromUri(url)))
+            } else {
+                setMediaItem(com.google.android.exoplayer2.MediaItem.fromUri(url))
+            }
             prepare()
+            playWhenReady = true
         }
     }
 
     override fun onStart() {
         Log.i(TAG, "onStart")
         super.onStart()
+        val current = tvViewModel
+        if (current?.getTV()?.programType == ProgramType.F && current.videoIndex.value == 0) {
+            play(current)
+            return
+        }
         if (playerView != null && playerView!!.player?.isPlaying == false) {
             Log.i(TAG, "replay")
             playerView!!.player?.prepare()
@@ -132,6 +204,8 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
 
     override fun onPause() {
         super.onPause()
+        playGeneration++
+        resolveJob?.cancel()
         if (playerView != null && playerView!!.player?.isPlaying == true) {
             playerView!!.player?.stop()
         }
@@ -150,6 +224,8 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        playGeneration++
+        resolveJob?.cancel()
         _binding = null
     }
 

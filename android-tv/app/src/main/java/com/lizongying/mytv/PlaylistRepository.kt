@@ -19,7 +19,7 @@ object PlaylistRepository {
         .callTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    data class Result(val channels: Map<String, List<TV>>, val cached: Boolean)
+    data class Result(val channels: Map<String, List<TV>>, val cached: Boolean, val phoenixOnly: Boolean = false)
 
     suspend fun load(context: Context): Result = withContext(Dispatchers.IO) {
         val cache = AtomicFile(File(context.filesDir, "subscription.m3u"))
@@ -43,13 +43,12 @@ object PlaylistRepository {
                 Log.w("PlaylistRepository", "Unable to cache subscription", e)
             }
             Log.i("PlaylistRepository", "Loaded ${channels.values.sumOf { it.size }} channels from $DEFAULT_URL")
-            Result(channels, false)
+            Result(PhoenixChannels.merge(channels), false)
         } catch (e: Exception) {
             Log.w("PlaylistRepository", "Subscription unavailable; trying cache", e)
             val channels = runCatching { parse(cache.openRead().bufferedReader().use { it.readText() }) }
                 .getOrDefault(emptyMap())
-            check(channels.isNotEmpty()) { "无法加载频道，请确认路由器订阅服务可用" }
-            Result(channels, true)
+            Result(PhoenixChannels.merge(channels), true, channels.isEmpty())
         }
     }
 

@@ -28,8 +28,8 @@ android {
         applicationId "com.yangyao.mytv"
         minSdk 21
         targetSdk 33
-        versionCode VersionCode()
-        versionName VersionName()
+        versionCode 17237504
+        versionName "1.7.6"
 
         buildConfigField "String", "PLAYLIST_URL", groovy.json.JsonOutput.toJson(playlistUrl)
 
@@ -55,30 +55,6 @@ android {
 
 }
 
-static def VersionCode() {
-    try {
-        def p = "git describe --tags --always"
-        def process = p.execute()
-        process.waitFor()
-        def replace = [v: "", ".": " ", "-": " "]
-        def arr = (process.text.trim().replace(replace) + " 0").split(" ")
-        def versionCode = arr[0].toInteger() * 16777216 + arr[1].toInteger() * 65536 + arr[2].toInteger() * 256 + arr[3].toInteger()
-        println("VersionCode $versionCode")
-        return versionCode
-    } catch (ignored) {
-        return 0
-    }
-}
-
-static def VersionName() {
-    try {
-        def process = "git describe --tags --always".execute()
-        process.waitFor()
-        return process.text.trim() - "v"
-    } catch (ignored) {
-        return "1.0.0"
-    }
-}
 
 dependencies {
     testImplementation "junit:junit:4.13.2"
