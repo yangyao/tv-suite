@@ -403,6 +403,7 @@ def scan(snapshot, directory, report=lambda message: print(message, flush=True))
     }
     records = {row["id"]: row for row in snapshot.get("discovery_candidates", [])}
     source_state = {s["id"]: s for s in snapshot["sources"]}
+    observed_urls = {e["url"] for _, entries in queues for e in entries}
     represented, per_name = {}, {}
     for row in records.values():
         per_name[row["name_key"]] = per_name.get(row["name_key"], 0) + 1
@@ -442,9 +443,23 @@ def scan(snapshot, directory, report=lambda message: print(message, flush=True))
             id = hashlib.sha256((key + "\x1f" + entry["url"]).encode()).hexdigest()[:24]
             if key not in per_name and len(per_name) >= settings["max_channels"] * 3:
                 continue
-            if id not in records and (
-                per_name.get(key, 0) >= 2 or len(records) >= 1000
-            ):
+            if id not in records and per_name.get(key, 0) >= 2:
+                stale = sorted(
+                    (
+                        r
+                        for r in records.values()
+                        if r["name_key"] == key and r["url"] not in observed_urls
+                    ),
+                    key=lambda r: (
+                        bool(r.get("valid")),
+                        r.get("last_seen", r["first_seen"]),
+                    ),
+                )
+                if not stale:
+                    continue
+                records.pop(stale[0]["id"])
+                per_name[key] -= 1
+            if id not in records and len(records) >= 1000:
                 continue
             if id not in records:
                 records[id] = {
@@ -482,11 +497,18 @@ def scan(snapshot, directory, report=lambda message: print(message, flush=True))
     active_names = {r["name_key"] for r in records.values() if r.get("valid")}
     blocked = {r["target"] for r in snapshot.get("rules", []) if r["kind"] == "url"}
     hidden = {r["target"] for r in snapshot.get("rules", []) if r["kind"] == "channel"}
+    approved_urls = {s["url"] for s in snapshot["sources"] if s["enabled"]}
+    selected_categories = {"发现·" + REGIONS[c] for c in settings["countries"]} | {
+        "发现·" + LANGUAGES[c] for c in settings["languages"]
+    }
     due = sorted(
         (
             r
             for r in records.values()
-            if r["id"] in represented
+            if (r["id"] in represented or r["source_url"] in approved_urls)
+            and r["provider"] in settings["providers"]
+            and r["category"] in selected_categories
+            and r.get("missing", 0) < 3
             and r.get("next_check", 0) <= now
             and r["url"] not in blocked
             and channel_key(r["category"], r["name"]) not in hidden
@@ -508,7 +530,11 @@ def scan(snapshot, directory, report=lambda message: print(message, flush=True))
         ):
             continue
         if any(
-            r["valid"] and r["name_key"] == row["name_key"] and r["id"] != row["id"]
+            r["valid"]
+            and not r.get("error")
+            and r["id"] in represented
+            and r["name_key"] == row["name_key"]
+            and r["id"] != row["id"]
             for r in records.values()
         ):
             continue
@@ -653,7 +679,10 @@ def published_entries(store):
         "发现·" + LANGUAGES[c] for c in settings["languages"]
     }
     entries, seen = [], set()
-    for row in rows(store, "discovery_candidates"):
+    for row in sorted(
+        rows(store, "discovery_candidates"),
+        key=lambda r: (r.get("failures", 0), -(r.get("checked_at") or 0)),
+    ):
         if (
             not row.get("valid")
             or row["category"] not in categories

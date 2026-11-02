@@ -168,6 +168,59 @@ class DiscoveryTests(unittest.TestCase):
         self.assertTrue(result["records"][0]["valid"])
         self.assertEqual(result["records"][0]["failures"], 0)
 
+    def test_rotating_urls_replace_old_links_without_waiting_for_channel_eviction(self):
+        result, _ = self.scan()
+        d.apply_result(self.store, result, "first")
+        for i in range(3):
+            snap = self.snapshot()
+            for row in snap["discovery_candidates"]:
+                row["next_check"] = 0
+            content = LIST.replace("/live.m3u8", f"/rotation{i}.m3u8")
+            fetcher = Mock()
+            fetcher.get.side_effect = lambda url: (
+                HK if url == INDEX else content,
+                True,
+            )
+            with (
+                patch.object(d, "Fetcher", return_value=fetcher),
+                patch.object(
+                    d,
+                    "probe",
+                    side_effect=lambda row, *args: {
+                        "valid": row["url"].endswith(f"rotation{i}.m3u8"),
+                        "error": ""
+                        if row["url"].endswith(f"rotation{i}.m3u8")
+                        else "expired",
+                    },
+                ),
+            ):
+                result = d.scan(snap, self.root, lambda message: None)
+            d.apply_result(self.store, result, "rotated")
+            self.assertLessEqual(len(result["records"]), 2)
+            self.assertTrue(
+                d.published_entries(self.store)[0]["url"].endswith(f"rotation{i}.m3u8")
+            )
+
+    def test_due_streams_still_get_checked_when_catalog_is_temporarily_unavailable(
+        self,
+    ):
+        result, _ = self.scan()
+        d.apply_result(self.store, result, "first")
+        snap = self.snapshot()
+        snap["discovery_candidates"][0]["next_check"] = 0
+        fetcher = Mock()
+        fetcher.get.side_effect = OSError("offline")
+        with (
+            patch.object(d, "Fetcher", return_value=fetcher),
+            patch.object(
+                d, "probe", return_value={"valid": False, "error": "offline"}
+            ) as probe,
+        ):
+            result = d.scan(snap, self.root, lambda message: None)
+        self.assertEqual(probe.call_count, 1)
+        self.assertTrue(result["records"][0]["valid"])
+        self.assertEqual(result["records"][0]["failures"], 1)
+
     def test_respects_disabled_and_deleted_sources_and_race(self):
         result, _ = self.scan()
         d.apply_result(self.store, result, "first")
