@@ -28,8 +28,8 @@ android {
         applicationId "com.yangyao.mytv"
         minSdk 21
         targetSdk 33
-        versionCode 17237504
-        versionName "1.7.6"
+        versionCode 17237760
+        versionName "1.7.7"
 
         buildConfigField "String", "PLAYLIST_URL", groovy.json.JsonOutput.toJson(playlistUrl)
 

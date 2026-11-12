@@ -37,11 +37,12 @@ class InfoFragment : Fragment() {
 
         Log.i(TAG, "${tvViewModel.getTV().title} ${tvViewModel.epg.value}")
         val epg = tvViewModel.epg.value?.filter { it.beginTime < Utils.getDateTimestamp() }
-        if (!epg.isNullOrEmpty()) {
-            binding.infoDesc.text = epg.last().title
-        } else {
-            binding.infoDesc.text = ""
-        }
+        val source = tvViewModel.videoIndex.value ?: 0
+        val count = tvViewModel.videoUrl.value?.size ?: 0
+        val label = SourceOptions.name(tvViewModel.getTV().programType, source).replace("线路", "")
+        binding.infoDesc.text = "$label · ${source + 1}/$count · 长按OK换线"
+        binding.infoDesc.contentDescription = binding.infoDesc.text.toString() +
+            (epg?.lastOrNull()?.title?.let { " · $it" } ?: "")
 
         handler.removeCallbacks(removeRunnable)
         view?.visibility = View.VISIBLE

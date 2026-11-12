@@ -155,6 +155,16 @@ class MainFragment : BrowseSupportFragment() {
         tvListViewModel.setItemPosition(itemPosition)
     }
 
+    fun playingChannel(): TVViewModel? = tvListViewModel.getTVViewModel(itemPosition)
+
+    fun selectSource(index: Int) {
+        val model = playingChannel() ?: return
+        if (index !in (model.videoUrl.value ?: emptyList()).indices) return
+        model.retryTimes = 0
+        model.setVideoIndex(index)
+        model.changed()
+    }
+
     fun prevSource() {
         view?.post {
             val tvViewModel = tvListViewModel.getTVViewModel(itemPosition)

@@ -1,6 +1,8 @@
 package com.lizongying.mytv
 
+import android.app.AlertDialog
 import android.os.Bundle
+import android.view.ViewConfiguration
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -28,6 +30,13 @@ class MainActivity : FragmentActivity() {
     private val errorFragment = ErrorFragment()
 
     private var doubleBackToExitPressedOnce = false
+    private val confirmGesture = ConfirmKeyGesture()
+    private var confirmKeyCode = KeyEvent.KEYCODE_UNKNOWN
+    private var sourceDialog: AlertDialog? = null
+    private var openingKeyRelease = false
+    private val longConfirm = Runnable {
+        if (confirmGesture.timeout() == ConfirmKeyGesture.Action.LONG_PRESS) showSourceDialog()
+    }
 
     private lateinit var gestureDetector: GestureDetector
 
@@ -104,12 +113,85 @@ class MainActivity : FragmentActivity() {
         mainFragment.next()
     }
 
-    private fun prevSource() {
-//        mainFragment.prevSource()
+    private fun cancelConfirmPress() {
+        handler.removeCallbacks(longConfirm)
+        confirmGesture.cancel()
+        confirmKeyCode = KeyEvent.KEYCODE_UNKNOWN
     }
 
-    private fun nextSource() {
-//        mainFragment.nextSource()
+    private fun isConfirmKey(keyCode: Int): Boolean =
+        keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER ||
+            keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (!isConfirmKey(event.keyCode)) {
+            if (event.action == KeyEvent.ACTION_DOWN) cancelConfirmPress()
+            return super.dispatchKeyEvent(event)
+        }
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            (confirmGesture.isPressed || (mainFragment.isHidden && !settingFragment.isVisible && sourceDialog == null))) {
+            if (confirmGesture.down(event.repeatCount != 0)) {
+                confirmKeyCode = event.keyCode
+                handler.postDelayed(longConfirm, ViewConfiguration.getLongPressTimeout().toLong())
+            }
+            if (event.isLongPress &&
+                confirmGesture.timeout() == ConfirmKeyGesture.Action.LONG_PRESS) showSourceDialog()
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_UP && confirmGesture.isPressed && event.keyCode == confirmKeyCode) {
+            handler.removeCallbacks(longConfirm)
+            val action = confirmGesture.up(event.isCanceled)
+            confirmKeyCode = KeyEvent.KEYCODE_UNKNOWN
+            if (action == ConfirmKeyGesture.Action.SHORT_PRESS) switchMainFragment()
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun showSourceDialog() {
+        if (sourceDialog != null || !mainFragment.isHidden || settingFragment.isVisible) return
+        val model = mainFragment.playingChannel() ?: return
+        val count = model.videoUrl.value?.size ?: 0
+        if (count == 0) return
+        val selected = (model.videoIndex.value ?: 0).coerceIn(0, count - 1)
+        openingKeyRelease = confirmGesture.isPressed
+        sourceDialog = AlertDialog.Builder(this)
+            .setTitle("${model.getTV().title} · 选择线路")
+            .setSingleChoiceItems(SourceOptions.labels(model.getTV().programType, count, selected), selected) { dialog, index ->
+                if (mainFragment.playingChannel() === model) {
+                    mainFragment.selectSource(index)
+                    Toast.makeText(this, "正在连接" + SourceOptions.name(model.getTV().programType, index), Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .create().apply {
+                setOnKeyListener { _, keyCode, event ->
+                    if (!isConfirmKey(keyCode) || !openingKeyRelease) return@setOnKeyListener false
+                    if (event.action == KeyEvent.ACTION_UP) {
+                        openingKeyRelease = false
+                        cancelConfirmPress()
+                        true
+                    } else if (event.repeatCount > 0) {
+                        true
+                    } else {
+                        openingKeyRelease = false
+                        cancelConfirmPress()
+                        false
+                    }
+                }
+                setOnShowListener {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                    listView.setSelection(selected)
+                    listView.requestFocus()
+                }
+                setOnDismissListener {
+                    sourceDialog = null
+                    openingKeyRelease = false
+                    cancelConfirmPress()
+                }
+                show()
+            }
     }
 
     fun switchMainFragment() {
@@ -403,15 +485,7 @@ class MainActivity : FragmentActivity() {
                 return true
             }
 
-            KeyEvent.KEYCODE_ENTER -> {
-                switchMainFragment()
-            }
-
-            KeyEvent.KEYCODE_DPAD_CENTER -> {
-                switchMainFragment()
-            }
-
-            KeyEvent.KEYCODE_DPAD_UP -> {
+KeyEvent.KEYCODE_DPAD_UP -> {
                 channelUp()
             }
 
@@ -463,6 +537,8 @@ class MainActivity : FragmentActivity() {
     override fun onPause() {
         Log.i(TAG, "onPause")
         super.onPause()
+        cancelConfirmPress()
+        sourceDialog?.dismiss()
         handler.removeCallbacks(hideMain)
     }
 
