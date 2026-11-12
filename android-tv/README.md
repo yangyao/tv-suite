@@ -22,7 +22,7 @@
 
 ## 本地构建
 
-需要 JDK 17 和 Android SDK 34。
+需要 JDK 17 和 Android SDK 35；Gradle Wrapper 固定为 8.9。
 
 1. 将 `playlist.properties.example` 复制到 `private/local.properties`，填写自己的 M3U 订阅地址。`private/` 已被 Git 忽略。
 2. 设置 `JAVA_HOME`、`ANDROID_HOME`，或通过本地 `local.properties` 配置 Android SDK 路径。
@@ -32,6 +32,14 @@
 也可以通过 `-PplaylistUrl=https://example.com/playlist.m3u` 指定地址；命令行参数优先于本地文件。公共 CI 会显式使用占位地址。
 
 私人订阅、设备地址、部署配置和个人 APK 请仅保存在 `private/` 中。构建时地址会写入 APK，因此个人 APK 也不应上传到公开仓库或 Release。
+
+## 播放器
+
+Media3 1.8.0 搭配 [Jellyfin FFmpeg 扩展](https://github.com/jellyfin/jellyfin-androidx-media) `1.8.0+1`（GPL-3.0），通过 Maven Central 获取预编译原生库，不需要本机安装 NDK。扩展音频解码器优先，视频仍使用设备解码器并启用解码器初始化失败时的回退；这不等于强制视频软件解码。
+
+视频请求使用 Media3 默认请求头，与对照改版一致；凤凰取址 API 的请求头与视频 CDN 请求头分开处理。
+
+调试日志每 10 秒记录播放位置、缓冲位置和视频帧计数，并记录实际使用的解码器名称，用于排查画面停住而没有报错的情况；不记录带签名的播放地址。
 
 ## 凤凰卫视
 

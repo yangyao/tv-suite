@@ -1,6 +1,11 @@
 package com.lizongying.mytv
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.SurfaceHolder
@@ -22,9 +27,6 @@ import com.lizongying.mytv.databinding.PlayerBinding
 import com.lizongying.mytv.models.TVViewModel
 import com.lizongying.mytv.models.ProgramType
 import androidx.lifecycle.lifecycleScope
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -44,6 +46,17 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
     private var resolveJob: Job? = null
     private var playGeneration = 0
     private var officialRetried = false
+    private val healthHandler = Handler(Looper.getMainLooper())
+    private val playbackHealth = object : Runnable {
+        override fun run() {
+            (playerView?.player as? ExoPlayer)?.let { player ->
+                val counters = player.videoDecoderCounters
+                counters?.ensureUpdated()
+                Log.i(TAG, "Playback health: channel=${tvViewModel?.getTV()?.title}, source=${tvViewModel?.videoIndex?.value}, state=${player.playbackState}, playing=${player.isPlaying}, position=${player.currentPosition}, buffered=${player.bufferedPosition}, frames=${counters?.renderedOutputBufferCount}, dropped=${counters?.droppedBufferCount}")
+            }
+            healthHandler.postDelayed(this, 10_000)
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -66,25 +79,36 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
             override fun onGlobalLayout() {
                 playerView!!.viewTreeObserver.removeOnGlobalLayoutListener(this)
                 playerView!!.player = activity?.let {
+                    val renderers = DefaultRenderersFactory(it)
+                        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                        .setEnableDecoderFallback(true)
+                    Log.i(TAG, "FFmpeg extension available: ${FfmpegLibrary.isAvailable()}")
                     ExoPlayer.Builder(it)
-                        .build()
+                        .setRenderersFactory(renderers)
+                        .build().also { player ->
+                            player.addAnalyticsListener(object : AnalyticsListener {
+                                override fun onAudioDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                                    Log.i(TAG, "Audio decoder: $decoderName")
+                                }
+                                override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                                    Log.i(TAG, "Video decoder: $decoderName")
+                                }
+                            })
+                        }
                 }
                 playerView!!.player?.playWhenReady = true
                 playerView!!.player?.addListener(object : Player.Listener {
                     override fun onVideoSizeChanged(videoSize: VideoSize) {
-                        val ratio = playerView?.measuredWidth?.div(playerView?.measuredHeight!!)
-                        if (ratio != null) {
-                            val layoutParams = playerView?.layoutParams
-                            if (ratio < aspectRatio) {
-                                layoutParams?.height =
-                                    (playerView?.measuredWidth?.div(aspectRatio))?.toInt()
-                                playerView?.layoutParams = layoutParams
-                            } else if (ratio > aspectRatio) {
-                                layoutParams?.width =
-                                    (playerView?.measuredHeight?.times(aspectRatio))?.toInt()
-                                playerView?.layoutParams = layoutParams
-                            }
+                        val view = playerView ?: return
+                        val params = view.layoutParams ?: return
+                        if (view.measuredHeight == 0) return
+                        val ratio = view.measuredWidth.toFloat() / view.measuredHeight
+                        if (ratio < aspectRatio) {
+                            params.height = (view.measuredWidth / aspectRatio).toInt()
+                        } else if (ratio > aspectRatio) {
+                            params.width = (view.measuredHeight * aspectRatio).toInt()
                         }
+                        view.layoutParams = params
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -131,13 +155,13 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
         exoPlayer?.stop()
         val official = model.getTV().programType == ProgramType.F && model.videoIndex.value == 0
         if (!official) {
-            playResolved(model.getVideoUrlCurrent(), false)
+            playResolved(model.getVideoUrlCurrent())
             return
         }
         resolveJob = viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val url = PhoenixResolver.resolve(model.getTV().pid)
-                if (generation == playGeneration) playResolved(url, true)
+                if (generation == playGeneration) playResolved(url)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -148,30 +172,14 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
         }
     }
 
-    @OptIn(UnstableApi::class)
-    private fun playResolved(url: String, official: Boolean) {
-        (playerView?.player as? ExoPlayer)?.run {
-            if (official) {
-                val http = DefaultHttpDataSource.Factory().setUserAgent("Mozilla/5.0")
-                    .setAllowCrossProtocolRedirects(true)
-                    .setDefaultRequestProperties(mapOf("Referer" to "https://m.fengshows.com/"))
-                val factory = DefaultMediaSourceFactory(DefaultDataSource.Factory(requireContext(), http))
-                setMediaSource(factory.createMediaSource(MediaItem.fromUri(url)))
-            } else {
-                setMediaItem(MediaItem.fromUri(url))
-            }
+    private fun playResolved(url: String) {
+        playerView?.player?.run {
+            setMediaItem(MediaItem.fromUri(url))
             prepare()
             playWhenReady = true
         }
         exoPlayer?.run {
-            if (official) {
-                val http = com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory("Mozilla/5.0")
-                http.setDefaultRequestProperties(mapOf("Referer" to "https://m.fengshows.com/"))
-                val factory = com.google.android.exoplayer2.source.DefaultMediaSourceFactory(http)
-                setMediaSource(factory.createMediaSource(com.google.android.exoplayer2.MediaItem.fromUri(url)))
-            } else {
-                setMediaItem(com.google.android.exoplayer2.MediaItem.fromUri(url))
-            }
+            setMediaItem(com.google.android.exoplayer2.MediaItem.fromUri(url))
             prepare()
             playWhenReady = true
         }
@@ -200,10 +208,13 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
     override fun onResume() {
         Log.i(TAG, "onResume")
         super.onResume()
+        healthHandler.removeCallbacks(playbackHealth)
+        healthHandler.post(playbackHealth)
     }
 
     override fun onPause() {
         super.onPause()
+        healthHandler.removeCallbacks(playbackHealth)
         playGeneration++
         resolveJob?.cancel()
         if (playerView != null && playerView!!.player?.isPlaying == true) {
@@ -224,6 +235,7 @@ class PlayerFragment : Fragment(), SurfaceHolder.Callback {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        healthHandler.removeCallbacks(playbackHealth)
         playGeneration++
         resolveJob?.cancel()
         _binding = null
